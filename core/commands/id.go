@@ -12,12 +12,12 @@ import (
 	core "github.com/ipfs/go-ipfs/core"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
 
-	identify "gx/ipfs/QmNh1kGFFdsPu79KNSaL4NUKUPb4Eiz4KHdMtFY6664RDp/go-libp2p/p2p/protocol/identify"
-	kb "gx/ipfs/QmTH6VLu3WXfbH3nuLdmscgPWuiPZv3GMJ2YCdzBS5z91T/go-libp2p-kbucket"
-	pstore "gx/ipfs/QmXauCuJzmzapetmC6W4TuDJLL1yFFrVzSHoWv8YdbmnxH/go-libp2p-peerstore"
-	"gx/ipfs/QmZoWKhxUmZ2seW4BzX6fJkNR8hh9PsGModr7q171yq2SS/go-libp2p-peer"
-	ic "gx/ipfs/QmaPbCnUMBohSGo3KnxEa2bHqyJVVeEEcwtqJAYxerieBo/go-libp2p-crypto"
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	identify "gx/ipfs/QmPL3AKtiaQyYpchZceXBZhZ3MSnoGqJvLZrc7fzDTTQdJ/go-libp2p/p2p/protocol/identify"
+	ic "gx/ipfs/QmPvyPwuCgJ7pDmrKDxRtsScJgBaM5h4EpRL2qQJsmXf4n/go-libp2p-crypto"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	pstore "gx/ipfs/QmWtCpWB39Rzc2xTB75MKorsxNpo3TyecTEN24CJ3KVohE/go-libp2p-peerstore"
+	"gx/ipfs/QmbNepETomvmXfz1X5pHNFD2QuPqnqi47dTd94QJWSorQ3/go-libp2p-peer"
+	kb "gx/ipfs/QmbVM9Av9Rtcgey7doFXjviabc2hbWCox6YyGLuPe4YNTn/go-libp2p-kbucket"
 )
 
 const offlineIdErrorMessage = `'ipfs id' currently cannot query information on remote
@@ -36,6 +36,10 @@ type IdOutput struct {
 	AgentVersion    string
 	ProtocolVersion string
 }
+
+const (
+	formatOptionName = "format"
+)
 
 var IDCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
@@ -60,7 +64,7 @@ EXAMPLE:
 		cmdkit.StringArg("peerid", false, false, "Peer.ID of node to look up."),
 	},
 	Options: []cmdkit.Option{
-		cmdkit.StringOption("format", "f", "Optional output format."),
+		cmdkit.StringOption(formatOptionName, "f", "Optional output format."),
 	},
 	Run: func(req cmds.Request, res cmds.Response) {
 		node, err := req.InvocContext().GetNode()
@@ -126,7 +130,7 @@ EXAMPLE:
 				return nil, e.TypeErr(val, v)
 			}
 
-			format, found, err := res.Request().Option("format").String()
+			format, found, err := res.Request().Option(formatOptionName).String()
 			if err != nil {
 				return nil, err
 			}

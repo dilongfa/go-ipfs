@@ -5,7 +5,6 @@ package node
 import (
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -16,8 +15,8 @@ import (
 	mount "github.com/ipfs/go-ipfs/fuse/mount"
 	namesys "github.com/ipfs/go-ipfs/namesys"
 
-	ci "gx/ipfs/QmVvkK7s5imCiq3JVbL3pGfnhcCnf3LrFJPF4GE2sAoGZf/go-testutil/ci"
-	offroute "gx/ipfs/QmXtoXbu9ReyV6Q4kDQ5CF9wXQNDY1PdHc4HhfxRR5AHB3/go-ipfs-routing/offline"
+	ci "gx/ipfs/QmNfQbgBfARAtrYsBguChX6VJ5nbjeoYy1KdC36aaYWqG8/go-testutil/ci"
+	offroute "gx/ipfs/QmQ9PR61a8rwEFuFNs7JMA1QtQC9yZnBwoDn51JWXDbaTd/go-ipfs-routing/offline"
 )
 
 func maybeSkipFuseTests(t *testing.T) {
@@ -52,7 +51,7 @@ func TestExternalUnmount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	node.Routing = offroute.NewOfflineRouter(node.Repo.Datastore(), node.PrivateKey)
+	node.Routing = offroute.NewOfflineRouter(node.Repo.Datastore(), node.RecordValidator)
 	node.Namesys = namesys.NewNameSystem(node.Routing, node.Repo.Datastore(), 0)
 
 	err = ipns.InitializeKeyspace(node, node.PrivateKey)
@@ -77,24 +76,21 @@ func TestExternalUnmount(t *testing.T) {
 	}
 
 	// Run shell command to externally unmount the directory
-	cmd := "fusermount"
-	args := []string{"-u", ipnsDir}
-	if err := exec.Command(cmd, args...).Run(); err != nil {
+	cmd, err := mount.UnmountCmd(ipfsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 
 	// TODO(noffle): it takes a moment for the goroutine that's running fs.Serve to be notified and do its cleanup.
 	time.Sleep(time.Millisecond * 100)
 
-	// Attempt to unmount IPNS; check that it was already unmounted.
-	err = node.Mounts.Ipns.Unmount()
-	if err != mount.ErrNotMounted {
-		t.Fatal("Unmount should have failed")
-	}
-
 	// Attempt to unmount IPFS; it should unmount successfully.
 	err = node.Mounts.Ipfs.Unmount()
-	if err != nil {
-		t.Fatal(err)
+	if err != mount.ErrNotMounted {
+		t.Fatal("Unmount should have failed")
 	}
 }

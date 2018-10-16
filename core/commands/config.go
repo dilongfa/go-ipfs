@@ -14,16 +14,21 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
 	repo "github.com/ipfs/go-ipfs/repo"
-	config "github.com/ipfs/go-ipfs/repo/config"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
 
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	config "gx/ipfs/QmSoYrBMibm2T3LupaLuez7LPGnyrJwdRxvTfPUyCp691u/go-ipfs-config"
 )
 
 type ConfigField struct {
 	Key   string
 	Value interface{}
 }
+
+const (
+	configBoolOptionName = "bool"
+	configJSONOptionName = "json"
+)
 
 var ConfigCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
@@ -54,8 +59,8 @@ Set the value of the 'Datastore.Path' key:
 		cmdkit.StringArg("value", false, false, "The value to set the config entry to."),
 	},
 	Options: []cmdkit.Option{
-		cmdkit.BoolOption("bool", "Set a boolean value."),
-		cmdkit.BoolOption("json", "Parse stringified JSON."),
+		cmdkit.BoolOption(configBoolOptionName, "Set a boolean value."),
+		cmdkit.BoolOption(configJSONOptionName, "Parse stringified JSON."),
 	},
 	Run: func(req cmds.Request, res cmds.Response) {
 		args := req.Arguments()
@@ -87,7 +92,7 @@ Set the value of the 'Datastore.Path' key:
 		if len(args) == 2 {
 			value := args[1]
 
-			if parseJson, _, _ := req.Option("json").Bool(); parseJson {
+			if parseJSON, _, _ := req.Option(configJSONOptionName).Bool(); parseJSON {
 				var jsonVal interface{}
 				if err := json.Unmarshal([]byte(value), &jsonVal); err != nil {
 					err = fmt.Errorf("failed to unmarshal json. %s", err)
@@ -96,7 +101,7 @@ Set the value of the 'Datastore.Path' key:
 				}
 
 				output, err = setConfig(r, key, jsonVal)
-			} else if isbool, _, _ := req.Option("bool").Bool(); isbool {
+			} else if isbool, _, _ := req.Option(configBoolOptionName).Bool(); isbool {
 				output, err = setConfig(r, key, value == "true")
 			} else {
 				output, err = setConfig(r, key, value)
@@ -153,7 +158,7 @@ var configShowCmd = &cmds.Command{
 NOTE: For security reasons, this command will omit your private key. If you would like to make a full backup of your config (private key included), you must copy the config file from your repo.
 `,
 	},
-
+	Type: map[string]interface{}{},
 	Run: func(req cmds.Request, res cmds.Response) {
 		cfgPath := req.InvocContext().ConfigRoot
 		fname, err := config.Filename(cfgPath)
@@ -180,14 +185,31 @@ NOTE: For security reasons, this command will omit your private key. If you woul
 			res.SetError(err, cmdkit.ErrNormal)
 			return
 		}
+		res.SetOutput(&cfg)
+	},
+	Marshalers: cmds.MarshalerMap{
+		cmds.Text: func(res cmds.Response) (io.Reader, error) {
+			if res.Error() != nil {
+				return nil, res.Error()
+			}
 
-		output, err := config.HumanOutput(cfg)
-		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
-		}
+			v, err := unwrapOutput(res.Output())
+			if err != nil {
+				return nil, err
+			}
 
-		res.SetOutput(bytes.NewReader(output))
+			cfg, ok := v.(*map[string]interface{})
+			if !ok {
+				return nil, e.TypeErr(cfg, v)
+			}
+
+			buf, err := config.HumanOutput(cfg)
+			if err != nil {
+				return nil, err
+			}
+			buf = append(buf, byte('\n'))
+			return bytes.NewReader(buf), nil
+		},
 	},
 }
 

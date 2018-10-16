@@ -3,7 +3,7 @@
 package util
 
 import (
-	unix "gx/ipfs/QmPXvegq26x982cQjSfbTvSzZXn7GiaMwhhVPHkeTEhrPT/sys/unix"
+	unix "gx/ipfs/QmVGjyM9i2msKvLXwh9VosCTgP4mL91kC7hDmqnwTTx6Hu/sys/unix"
 )
 
 func init() {
@@ -12,16 +12,16 @@ func init() {
 	setLimit = unixSetLimit
 }
 
-func unixGetLimit() (int64, int64, error) {
+func unixGetLimit() (uint64, uint64, error) {
 	rlimit := unix.Rlimit{}
 	err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rlimit)
-	return int64(rlimit.Cur), int64(rlimit.Max), err
+	return rlimit.Cur, rlimit.Max, err
 }
 
-func unixSetLimit(soft int64, max int64) error {
+func unixSetLimit(soft uint64, max uint64) error {
 	rlimit := unix.Rlimit{
-		Cur: uint64(soft),
-		Max: uint64(max),
+		Cur: soft,
+		Max: max,
 	}
 	return unix.Setrlimit(unix.RLIMIT_NOFILE, &rlimit)
 }

@@ -10,14 +10,14 @@ import (
 	cmds "github.com/ipfs/go-ipfs/commands"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
 	coredag "github.com/ipfs/go-ipfs/core/coredag"
-	path "github.com/ipfs/go-ipfs/path"
 	pin "github.com/ipfs/go-ipfs/pin"
+	path "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 
-	mh "gx/ipfs/QmZyZDi491cCNTLfAhwcaDii2Kg4pwKRkhqQzURGDvY6ua/go-multihash"
-	cid "gx/ipfs/QmcZfnkapfECQGcLZaf9B79NRg7cRa9EnZh4LSbkCzwNvY/go-cid"
-	cmdkit "gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
-	files "gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit/files"
-	ipld "gx/ipfs/Qme5bWv7wtjUNGsK2BNGVUFPKiuxWrsqrtvYwCLRw8YFES/go-ipld-format"
+	cid "gx/ipfs/QmPSQnBKM9g7BaUcZCvswUJVscQ1ipjmwxN5PXCjkp9EQ7/go-cid"
+	mh "gx/ipfs/QmPnFwZ2JXKnXgMw8CdBPxn7FWh6LLdjUjxV1fKHuJnkr8/go-multihash"
+	cmdkit "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	files "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit/files"
+	ipld "gx/ipfs/QmdDXJs4axxefSPgK6Y1QhpJWKuDPnGJiqgq4uncb4rFHL/go-ipld-format"
 )
 
 var DagCmd = &cmds.Command{
@@ -39,12 +39,12 @@ to deprecate and replace the existing 'ipfs object' command moving forward.
 
 // OutputObject is the output type of 'dag put' command
 type OutputObject struct {
-	Cid *cid.Cid
+	Cid cid.Cid
 }
 
 // ResolveOutput is the output type of 'dag resolve' command
 type ResolveOutput struct {
-	Cid     *cid.Cid
+	Cid     cid.Cid
 	RemPath string
 }
 
@@ -143,7 +143,7 @@ into an object of the specified format.
 			if dopin {
 				defer n.Blockstore.PinLock().Unlock()
 
-				cids.ForEach(func(c *cid.Cid) error {
+				cids.ForEach(func(c cid.Cid) error {
 					n.Pinning.PinWithMode(c, pin.Recursive)
 					return nil
 				})
@@ -207,7 +207,12 @@ format.
 			return
 		}
 
-		obj, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
+		lastCid, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
+		if err != nil {
+			res.SetError(err, cmdkit.ErrNormal)
+			return
+		}
+		obj, err := n.DAG.Get(req.Context(), lastCid)
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
@@ -251,14 +256,14 @@ var DagResolveCmd = &cmds.Command{
 			return
 		}
 
-		obj, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
+		lastCid, rem, err := n.Resolver.ResolveToLastNode(req.Context(), p)
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
 		}
 
 		res.SetOutput(&ResolveOutput{
-			Cid:     obj.Cid(),
+			Cid:     lastCid,
 			RemPath: path.Join(rem),
 		})
 	},

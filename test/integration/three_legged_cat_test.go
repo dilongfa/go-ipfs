@@ -10,13 +10,15 @@ import (
 	"time"
 
 	core "github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/core/coreapi"
+	"github.com/ipfs/go-ipfs/core/coreapi/interface"
 	coreunix "github.com/ipfs/go-ipfs/core/coreunix"
 	mock "github.com/ipfs/go-ipfs/core/mock"
 	"github.com/ipfs/go-ipfs/thirdparty/unit"
 
-	mocknet "gx/ipfs/QmNh1kGFFdsPu79KNSaL4NUKUPb4Eiz4KHdMtFY6664RDp/go-libp2p/p2p/net/mock"
-	testutil "gx/ipfs/QmVvkK7s5imCiq3JVbL3pGfnhcCnf3LrFJPF4GE2sAoGZf/go-testutil"
-	pstore "gx/ipfs/QmXauCuJzmzapetmC6W4TuDJLL1yFFrVzSHoWv8YdbmnxH/go-libp2p-peerstore"
+	testutil "gx/ipfs/QmNfQbgBfARAtrYsBguChX6VJ5nbjeoYy1KdC36aaYWqG8/go-testutil"
+	mocknet "gx/ipfs/QmPL3AKtiaQyYpchZceXBZhZ3MSnoGqJvLZrc7fzDTTQdJ/go-libp2p/p2p/net/mock"
+	pstore "gx/ipfs/QmWtCpWB39Rzc2xTB75MKorsxNpo3TyecTEN24CJ3KVohE/go-libp2p-peerstore"
 )
 
 func TestThreeLeggedCatTransfer(t *testing.T) {
@@ -100,6 +102,9 @@ func RunThreeLeggedCat(data []byte, conf testutil.LatencyConfig) error {
 		return err
 	}
 	defer catter.Close()
+
+	catterApi := coreapi.NewCoreAPI(catter)
+
 	mn.LinkAll()
 
 	bis := bootstrap.Peerstore.PeerInfo(bootstrap.PeerHost.ID())
@@ -116,7 +121,12 @@ func RunThreeLeggedCat(data []byte, conf testutil.LatencyConfig) error {
 		return err
 	}
 
-	readerCatted, err := coreunix.Cat(ctx, catter, added)
+	ap, err := iface.ParsePath(added)
+	if err != nil {
+		return err
+	}
+
+	readerCatted, err := catterApi.Unixfs().Cat(ctx, ap)
 	if err != nil {
 		return err
 	}

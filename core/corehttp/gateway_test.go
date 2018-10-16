@@ -4,25 +4,27 @@ import (
 	"context"
 	"errors"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	version "github.com/ipfs/go-ipfs"
 	core "github.com/ipfs/go-ipfs/core"
 	coreunix "github.com/ipfs/go-ipfs/core/coreunix"
-	dag "github.com/ipfs/go-ipfs/merkledag"
 	namesys "github.com/ipfs/go-ipfs/namesys"
 	nsopts "github.com/ipfs/go-ipfs/namesys/opts"
-	path "github.com/ipfs/go-ipfs/path"
 	repo "github.com/ipfs/go-ipfs/repo"
-	config "github.com/ipfs/go-ipfs/repo/config"
 
-	id "gx/ipfs/QmNh1kGFFdsPu79KNSaL4NUKUPb4Eiz4KHdMtFY6664RDp/go-libp2p/p2p/protocol/identify"
-	datastore "gx/ipfs/QmXRKBQA4wXP7xWbFiZsR1GP4HV6wMDQ1aWFxZZ4uBcPX9/go-datastore"
-	syncds "gx/ipfs/QmXRKBQA4wXP7xWbFiZsR1GP4HV6wMDQ1aWFxZZ4uBcPX9/go-datastore/sync"
-	ci "gx/ipfs/QmaPbCnUMBohSGo3KnxEa2bHqyJVVeEEcwtqJAYxerieBo/go-libp2p-crypto"
+	id "gx/ipfs/QmPL3AKtiaQyYpchZceXBZhZ3MSnoGqJvLZrc7fzDTTQdJ/go-libp2p/p2p/protocol/identify"
+	ci "gx/ipfs/QmPvyPwuCgJ7pDmrKDxRtsScJgBaM5h4EpRL2qQJsmXf4n/go-libp2p-crypto"
+	config "gx/ipfs/QmSoYrBMibm2T3LupaLuez7LPGnyrJwdRxvTfPUyCp691u/go-ipfs-config"
+	dag "gx/ipfs/QmVvNkTCx8V9Zei8xuTYTBdUXmbnDRS4iNuw1SztYyhQwQ/go-merkledag"
+	datastore "gx/ipfs/QmaRb5yNXKonhbkpNxNawoydk4N6es6b4fPj19sjEKsh5D/go-datastore"
+	syncds "gx/ipfs/QmaRb5yNXKonhbkpNxNawoydk4N6es6b4fPj19sjEKsh5D/go-datastore/sync"
+	path "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 )
 
 // `ipfs object new unixfs-dir`
@@ -31,11 +33,28 @@ var emptyDir = "/ipfs/QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf67hvA3Nn"
 type mockNamesys map[string]path.Path
 
 func (m mockNamesys) Resolve(ctx context.Context, name string, opts ...nsopts.ResolveOpt) (value path.Path, err error) {
-	p, ok := m[name]
-	if !ok {
-		return "", namesys.ErrResolveFailed
+	cfg := nsopts.DefaultResolveOpts()
+	for _, o := range opts {
+		o(cfg)
 	}
-	return p, nil
+	depth := cfg.Depth
+	if depth == nsopts.UnlimitedDepth {
+		depth = math.MaxUint64
+	}
+	for strings.HasPrefix(name, "/ipns/") {
+		if depth <= 0 {
+			return value, namesys.ErrResolveRecursion
+		}
+		depth--
+
+		var ok bool
+		value, ok = m[name]
+		if !ok {
+			return "", namesys.ErrResolveFailed
+		}
+		name = value.String()
+	}
+	return value, nil
 }
 
 func (m mockNamesys) Publish(ctx context.Context, name ci.PrivKey, value path.Path) error {
@@ -109,9 +128,9 @@ func newTestServerAndNode(t *testing.T, ns mockNamesys) (*httptest.Server, *core
 
 	dh.Handler, err = makeHandler(n,
 		ts.Listener,
-		VersionOption(),
 		IPNSHostnameOption(),
 		GatewayOption(false, "/ipfs", "/ipns"),
+		VersionOption(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +149,18 @@ func TestGatewayGet(t *testing.T) {
 		t.Fatal(err)
 	}
 	ns["/ipns/example.com"] = path.FromString("/ipfs/" + k)
+	ns["/ipns/working.example.com"] = path.FromString("/ipfs/" + k)
+	ns["/ipns/double.example.com"] = path.FromString("/ipns/working.example.com")
+	ns["/ipns/triple.example.com"] = path.FromString("/ipns/double.example.com")
+	ns["/ipns/broken.example.com"] = path.FromString("/ipns/" + k)
+	// We picked .man because:
+	// 1. It's a valid TLD.
+	// 2. Go treats it as the file extension for "man" files (even though
+	//    nobody actually *uses* this extension, AFAIK).
+	//
+	// Unfortunately, this may not work on all platforms as file type
+	// detection is platform dependent.
+	ns["/ipns/example.man"] = path.FromString("/ipfs/" + k)
 
 	t.Log(ts.URL)
 	for _, test := range []struct {
@@ -145,6 +176,15 @@ func TestGatewayGet(t *testing.T) {
 		{"localhost:5001", "/ipns/%0D%0A%0D%0Ahello", http.StatusNotFound, "ipfs resolve -r /ipns/%0D%0A%0D%0Ahello: " + namesys.ErrResolveFailed.Error() + "\n"},
 		{"localhost:5001", "/ipns/example.com", http.StatusOK, "fnord"},
 		{"example.com", "/", http.StatusOK, "fnord"},
+
+		{"working.example.com", "/", http.StatusOK, "fnord"},
+		{"double.example.com", "/", http.StatusOK, "fnord"},
+		{"triple.example.com", "/", http.StatusOK, "fnord"},
+		{"working.example.com", "/ipfs/" + k, http.StatusNotFound, "ipfs resolve -r /ipns/working.example.com/ipfs/" + k + ": no link by that name\n"},
+		{"broken.example.com", "/", http.StatusNotFound, "ipfs resolve -r /ipns/broken.example.com/: " + namesys.ErrResolveFailed.Error() + "\n"},
+		{"broken.example.com", "/ipfs/" + k, http.StatusNotFound, "ipfs resolve -r /ipns/broken.example.com/ipfs/" + k + ": " + namesys.ErrResolveFailed.Error() + "\n"},
+		// This test case ensures we don't treat the TLD as a file extension.
+		{"example.man", "/", http.StatusOK, "fnord"},
 	} {
 		var c http.Client
 		r, err := http.NewRequest("GET", ts.URL+test.path, nil)
@@ -160,6 +200,10 @@ func TestGatewayGet(t *testing.T) {
 			continue
 		}
 		defer resp.Body.Close()
+		contentType := resp.Header.Get("Content-Type")
+		if contentType != "text/plain; charset=utf-8" {
+			t.Errorf("expected content type to be text/plain, got %s", contentType)
+		}
 		if resp.StatusCode != test.status {
 			t.Errorf("got %d, expected %d from %s", resp.StatusCode, test.status, urlstr)
 			continue
@@ -259,6 +303,23 @@ func TestIPNSHostnameRedirect(t *testing.T) {
 		t.Errorf("location header not present")
 	} else if hdr[0] != "/good-prefix/foo/" {
 		t.Errorf("location header is %v, expected /good-prefix/foo/", hdr[0])
+	}
+
+	// make sure /version isn't exposed
+	req, err = http.NewRequest("GET", ts.URL+"/version", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = "example.net"
+	req.Header.Set("X-Ipfs-Gateway-Prefix", "/good-prefix")
+
+	res, err = doWithoutRedirect(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.StatusCode != 404 {
+		t.Fatalf("expected a 404 error, got: %s", res.Status)
 	}
 }
 
@@ -516,7 +577,7 @@ func TestGoGetSupport(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	config.CurrentCommit = "theshortcommithash"
+	version.CurrentCommit = "theshortcommithash"
 
 	ns := mockNamesys{}
 	ts, _ := newTestServerAndNode(t, ns)

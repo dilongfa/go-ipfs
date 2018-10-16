@@ -6,10 +6,15 @@ import (
 
 	cmds "github.com/ipfs/go-ipfs/commands"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
+	ncmd "github.com/ipfs/go-ipfs/core/commands/name"
 	namesys "github.com/ipfs/go-ipfs/namesys"
 	nsopts "github.com/ipfs/go-ipfs/namesys/opts"
 
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+)
+
+const (
+	dnsRecursiveOptionName = "recursive"
 )
 
 var DNSCmd = &cmds.Command{
@@ -50,11 +55,11 @@ The resolver can recursively resolve:
 		cmdkit.StringArg("domain-name", true, false, "The domain-name name to resolve.").EnableStdin(),
 	},
 	Options: []cmdkit.Option{
-		cmdkit.BoolOption("recursive", "r", "Resolve until the result is not a DNS link."),
+		cmdkit.BoolOption(dnsRecursiveOptionName, "r", "Resolve until the result is not a DNS link."),
 	},
 	Run: func(req cmds.Request, res cmds.Response) {
 
-		recursive, _, _ := req.Option("recursive").Bool()
+		recursive, _, _ := req.Option(dnsRecursiveOptionName).Bool()
 		name := req.Arguments()[0]
 		resolver := namesys.NewDNSResolver()
 
@@ -72,7 +77,7 @@ The resolver can recursively resolve:
 			res.SetError(err, cmdkit.ErrNormal)
 			return
 		}
-		res.SetOutput(&ResolvedPath{output})
+		res.SetOutput(&ncmd.ResolvedPath{Path: output})
 	},
 	Marshalers: cmds.MarshalerMap{
 		cmds.Text: func(res cmds.Response) (io.Reader, error) {
@@ -81,12 +86,12 @@ The resolver can recursively resolve:
 				return nil, err
 			}
 
-			output, ok := v.(*ResolvedPath)
+			output, ok := v.(*ncmd.ResolvedPath)
 			if !ok {
 				return nil, e.TypeErr(output, v)
 			}
 			return strings.NewReader(output.Path.String() + "\n"), nil
 		},
 	},
-	Type: ResolvedPath{},
+	Type: ncmd.ResolvedPath{},
 }

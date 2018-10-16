@@ -3,11 +3,13 @@ package coreapi_test
 import (
 	"context"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"testing"
 	"time"
 
-	ipath "github.com/ipfs/go-ipfs/path"
+	files "gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit/files"
+	ipath "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 
 	coreiface "github.com/ipfs/go-ipfs/core/coreapi/interface"
 	opt "github.com/ipfs/go-ipfs/core/coreapi/interface/options"
@@ -16,16 +18,18 @@ import (
 var rnd = rand.New(rand.NewSource(0x62796532303137))
 
 func addTestObject(ctx context.Context, api coreiface.CoreAPI) (coreiface.Path, error) {
-	return api.Unixfs().Add(ctx, &io.LimitedReader{R: rnd, N: 4092})
+	return api.Unixfs().Add(ctx, files.NewReaderFile("", "", ioutil.NopCloser(&io.LimitedReader{R: rnd, N: 4092}), nil))
 }
 
 func TestBasicPublishResolve(t *testing.T) {
 	ctx := context.Background()
-	n, api, err := makeAPIIdent(ctx, true)
+	nds, apis, err := makeAPISwarm(ctx, true, 5)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	n := nds[0]
+	api := apis[0]
 
 	p, err := addTestObject(ctx, api)
 	if err != nil {
@@ -60,11 +64,12 @@ func TestBasicPublishResolve(t *testing.T) {
 
 func TestBasicPublishResolveKey(t *testing.T) {
 	ctx := context.Background()
-	_, api, err := makeAPIIdent(ctx, true)
+	_, apis, err := makeAPISwarm(ctx, true, 5)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
+	api := apis[0]
 
 	k, err := api.Key().Generate(ctx, "foo")
 	if err != nil {
@@ -107,12 +112,13 @@ func TestBasicPublishResolveTimeout(t *testing.T) {
 	t.Skip("ValidTime doesn't appear to work at this time resolution")
 
 	ctx := context.Background()
-	n, api, err := makeAPIIdent(ctx, true)
+	nds, apis, err := makeAPISwarm(ctx, true, 5)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-
+	n := nds[0]
+	api := apis[0]
 	p, err := addTestObject(ctx, api)
 	if err != nil {
 		t.Fatal(err)

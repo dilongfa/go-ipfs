@@ -142,8 +142,9 @@ func TestGenerateType(t *testing.T) {
 		t.Errorf("expected the key to be called 'foo', got '%s'", k.Name())
 	}
 
-	if !strings.HasPrefix(k.Path().String(), "/ipns/Qm") {
-		t.Errorf("expected the key to be prefixed with '/ipns/Qm', got '%s'", k.Path().String())
+	// Expected to be an inlined identity hash.
+	if !strings.HasPrefix(k.Path().String(), "/ipns/12") {
+		t.Errorf("expected the key to be prefixed with '/ipns/12', got '%s'", k.Path().String())
 	}
 }
 
@@ -173,8 +174,8 @@ func TestGenerateExisting(t *testing.T) {
 	if err == nil {
 		t.Error("expected error to not be nil")
 	} else {
-		if err.Error() != "cannot overwrite key with name 'self'" {
-			t.Fatalf("expected error 'cannot overwrite key with name 'self'', got '%s'", err.Error())
+		if err.Error() != "cannot create key with name 'self'" {
+			t.Fatalf("expected error 'cannot create key with name 'self'', got '%s'", err.Error())
 		}
 	}
 }
@@ -365,6 +366,62 @@ func TestRenameOverwrite(t *testing.T) {
 	}
 }
 
+func TestRenameSameNameNoForce(t *testing.T) {
+	ctx := context.Background()
+	_, api, err := makeAPI(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = api.Key().Generate(ctx, "foo")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	k, overwrote, err := api.Key().Rename(ctx, "foo", "foo")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if overwrote {
+		t.Error("overwrote should be false")
+	}
+
+	if k.Name() != "foo" {
+		t.Errorf("returned key should be called 'foo', got '%s'", k.Name())
+	}
+}
+
+func TestRenameSameName(t *testing.T) {
+	ctx := context.Background()
+	_, api, err := makeAPI(ctx)
+	if err != nil {
+		t.Error(err)
+	}
+
+	_, err = api.Key().Generate(ctx, "foo")
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	k, overwrote, err := api.Key().Rename(ctx, "foo", "foo", opt.Key.Force(true))
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if overwrote {
+		t.Error("overwrote should be false")
+	}
+
+	if k.Name() != "foo" {
+		t.Errorf("returned key should be called 'foo', got '%s'", k.Name())
+	}
+}
+
 func TestRemove(t *testing.T) {
 	ctx := context.Background()
 	_, api, err := makeAPI(ctx)
@@ -395,8 +452,8 @@ func TestRemove(t *testing.T) {
 		return
 	}
 
-	if k.Path().String() != p.String() {
-		t.Errorf("k and p should have equal paths, '%s'!='%s'", k.Path().String(), p.String())
+	if k.Path().String() != p.Path().String() {
+		t.Errorf("k and p should have equal paths, '%s'!='%s'", k.Path().String(), p.Path().String())
 	}
 
 	l, err = api.Key().List(ctx)

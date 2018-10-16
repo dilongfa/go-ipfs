@@ -10,18 +10,26 @@ import (
 	"strings"
 
 	core "github.com/ipfs/go-ipfs/core"
+	cmdenv "github.com/ipfs/go-ipfs/core/commands/cmdenv"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
-	dag "github.com/ipfs/go-ipfs/merkledag"
-	path "github.com/ipfs/go-ipfs/path"
-	uarchive "github.com/ipfs/go-ipfs/unixfs/archive"
 
+	"gx/ipfs/QmPtj12fdwuAqj9sBSTNUxBNu8kCGNp8b3o8yUzMm5GHpq/pb"
 	tar "gx/ipfs/QmQine7gvHncNevKtG9QXxf3nXcwSj6aDDmMm52mHofEEp/tar-utils"
-	"gx/ipfs/QmTjNRVt2fvaRFu93keEC7z5M1GS1iH6qZ9227htQioTUY/go-ipfs-cmds"
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
-	"gx/ipfs/QmeWjRodbcZFKe5tMN7poEx3izym6osrLSnTLf9UjJZBbs/pb"
+	uarchive "gx/ipfs/QmRX6WZhMinQrQhyuwaqNHYQtNPhtBwzxKFySzNMaJmW9v/go-unixfs/archive"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	dag "gx/ipfs/QmVvNkTCx8V9Zei8xuTYTBdUXmbnDRS4iNuw1SztYyhQwQ/go-merkledag"
+	"gx/ipfs/QmXTmUCBtDUrzDYVzASogLiNph7EBuYqEgPL7QoHNMzUnz/go-ipfs-cmds"
+	path "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 )
 
 var ErrInvalidCompressionLevel = errors.New("compression level must be between 1 and 9")
+
+const (
+	outputOptionName           = "output"
+	archiveOptionName          = "archive"
+	compressOptionName         = "compress"
+	compressionLevelOptionName = "compression-level"
+)
 
 var GetCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
@@ -43,102 +51,86 @@ may also specify the level of compression by specifying '-l=<1-9>'.
 		cmdkit.StringArg("ipfs-path", true, false, "The path to the IPFS object(s) to be outputted.").EnableStdin(),
 	},
 	Options: []cmdkit.Option{
-		cmdkit.StringOption("output", "o", "The path where the output should be stored."),
-		cmdkit.BoolOption("archive", "a", "Output a TAR archive."),
-		cmdkit.BoolOption("compress", "C", "Compress the output with GZIP compression."),
-		cmdkit.IntOption("compression-level", "l", "The level of compression (1-9)."),
+		cmdkit.StringOption(outputOptionName, "o", "The path where the output should be stored."),
+		cmdkit.BoolOption(archiveOptionName, "a", "Output a TAR archive."),
+		cmdkit.BoolOption(compressOptionName, "C", "Compress the output with GZIP compression."),
+		cmdkit.IntOption(compressionLevelOptionName, "l", "The level of compression (1-9)."),
 	},
 	PreRun: func(req *cmds.Request, env cmds.Environment) error {
 		_, err := getCompressOptions(req)
 		return err
 	},
-	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) {
+	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) error {
 		cmplvl, err := getCompressOptions(req)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
-		node, err := GetNode(env)
+		node, err := cmdenv.GetNode(env)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 		p := path.Path(req.Arguments[0])
 		ctx := req.Context
 		dn, err := core.Resolve(ctx, node.Namesys, node.Resolver, p)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
 		switch dn := dn.(type) {
 		case *dag.ProtoNode:
 			size, err := dn.Size()
 			if err != nil {
-				res.SetError(err, cmdkit.ErrNormal)
-				return
+				return err
 			}
 
 			res.SetLength(size)
 		case *dag.RawNode:
 			res.SetLength(uint64(len(dn.RawData())))
 		default:
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
-		archive, _ := req.Options["archive"].(bool)
+		archive, _ := req.Options[archiveOptionName].(bool)
 		reader, err := uarchive.DagArchive(ctx, dn, p.String(), node.DAG, archive, cmplvl)
 		if err != nil {
-			res.SetError(err, cmdkit.ErrNormal)
-			return
+			return err
 		}
 
-		res.Emit(reader)
+		return res.Emit(reader)
 	},
 	PostRun: cmds.PostRunMap{
-		cmds.CLI: func(req *cmds.Request, re cmds.ResponseEmitter) cmds.ResponseEmitter {
-			reNext, res := cmds.NewChanResponsePair(req)
+		cmds.CLI: func(res cmds.Response, re cmds.ResponseEmitter) error {
+			req := res.Request()
 
-			go func() {
-				defer re.Close()
+			v, err := res.Next()
+			if err != nil {
+				return err
+			}
 
-				v, err := res.Next()
-				if !cmds.HandleError(err, res, re) {
-					return
-				}
+			outReader, ok := v.(io.Reader)
+			if !ok {
+				return e.New(e.TypeErr(outReader, v))
+			}
 
-				outReader, ok := v.(io.Reader)
-				if !ok {
-					log.Error(e.New(e.TypeErr(outReader, v)))
-					return
-				}
+			outPath := getOutPath(req)
 
-				outPath := getOutPath(req)
+			cmplvl, err := getCompressOptions(req)
+			if err != nil {
+				return err
+			}
 
-				cmplvl, err := getCompressOptions(req)
-				if err != nil {
-					re.SetError(err, cmdkit.ErrNormal)
-					return
-				}
+			archive, _ := req.Options[archiveOptionName].(bool)
 
-				archive, _ := req.Options["archive"].(bool)
+			gw := getWriter{
+				Out:         os.Stdout,
+				Err:         os.Stderr,
+				Archive:     archive,
+				Compression: cmplvl,
+				Size:        int64(res.Length()),
+			}
 
-				gw := getWriter{
-					Out:         os.Stdout,
-					Err:         os.Stderr,
-					Archive:     archive,
-					Compression: cmplvl,
-					Size:        int64(res.Length()),
-				}
-
-				if err := gw.Write(outReader, outPath); err != nil {
-					re.SetError(err, cmdkit.ErrNormal)
-				}
-			}()
-
-			return reNext
+			return gw.Write(outReader, outPath)
 		},
 	},
 }
@@ -180,7 +172,7 @@ func makeProgressBar(out io.Writer, l int64) *pb.ProgressBar {
 }
 
 func getOutPath(req *cmds.Request) string {
-	outPath, _ := req.Options["output"].(string)
+	outPath, _ := req.Options[outputOptionName].(string)
 	if outPath == "" {
 		trimmed := strings.TrimRight(req.Arguments[0], "/")
 		_, outPath = filepath.Split(trimmed)
@@ -248,8 +240,8 @@ func (gw *getWriter) writeExtracted(r io.Reader, fpath string) error {
 }
 
 func getCompressOptions(req *cmds.Request) (int, error) {
-	cmprs, _ := req.Options["compress"].(bool)
-	cmplvl, cmplvlFound := req.Options["compression-level"].(int)
+	cmprs, _ := req.Options[compressOptionName].(bool)
+	cmplvl, cmplvlFound := req.Options[compressionLevelOptionName].(int)
 	switch {
 	case !cmprs:
 		return gzip.NoCompression, nil

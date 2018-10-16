@@ -10,13 +10,13 @@ import (
 	"time"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
-	core "github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/core"
 
-	u "gx/ipfs/QmNiJuT8Ja3hMVpBHXv3Q6dwmperaQ6JjLtpMQgMCD7xvx/go-ipfs-util"
-	ma "gx/ipfs/QmWWQ2Txc2c6tqjsBpzg5Ar652cHPGNsQQp2SejkNmkUMb/go-multiaddr"
-	pstore "gx/ipfs/QmXauCuJzmzapetmC6W4TuDJLL1yFFrVzSHoWv8YdbmnxH/go-libp2p-peerstore"
-	peer "gx/ipfs/QmZoWKhxUmZ2seW4BzX6fJkNR8hh9PsGModr7q171yq2SS/go-libp2p-peer"
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	u "gx/ipfs/QmPdKqUcHGFdeSpvjVoaTRPPstGif9GBZb5Q56RVw9o69A/go-ipfs-util"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	pstore "gx/ipfs/QmWtCpWB39Rzc2xTB75MKorsxNpo3TyecTEN24CJ3KVohE/go-libp2p-peerstore"
+	ma "gx/ipfs/QmYmsdtJ3HsodkePE3eU3TsCaP2YvPZJ4LoXnNkDE5Tpt7/go-multiaddr"
+	"gx/ipfs/QmbNepETomvmXfz1X5pHNFD2QuPqnqi47dTd94QJWSorQ3/go-libp2p-peer"
 )
 
 const kPingTimeout = 10 * time.Second
@@ -26,6 +26,10 @@ type PingResult struct {
 	Time    time.Duration
 	Text    string
 }
+
+const (
+	pingCountOptionName = "count"
+)
 
 // ErrPingSelf is returned when the user attempts to ping themself.
 var ErrPingSelf = errors.New("error: can't ping self")
@@ -43,7 +47,7 @@ trip latency information.
 		cmdkit.StringArg("peer ID", true, true, "ID of peer to be pinged.").EnableStdin(),
 	},
 	Options: []cmdkit.Option{
-		cmdkit.IntOption("count", "n", "Number of ping messages to send.").WithDefault(10),
+		cmdkit.IntOption(pingCountOptionName, "n", "Number of ping messages to send.").WithDefault(10),
 	},
 	Marshalers: cmds.MarshalerMap{
 		cmds.Text: func(res cmds.Response) (io.Reader, error) {
@@ -78,7 +82,7 @@ trip latency information.
 
 		// Must be online!
 		if !n.OnlineMode() {
-			res.SetError(errNotOnline, cmdkit.ErrClient)
+			res.SetError(ErrNotOnline, cmdkit.ErrClient)
 			return
 		}
 
@@ -97,7 +101,7 @@ trip latency information.
 			n.Peerstore.AddAddr(peerID, addr, pstore.TempAddrTTL) // temporary
 		}
 
-		numPings, _, err := req.Option("count").Int()
+		numPings, _, err := req.Option(pingCountOptionName).Int()
 		if err != nil {
 			res.SetError(err, cmdkit.ErrNormal)
 			return
@@ -120,33 +124,49 @@ func pingPeer(ctx context.Context, n *core.IpfsNode, pid peer.ID, numPings int) 
 
 		if len(n.Peerstore.Addrs(pid)) == 0 {
 			// Make sure we can find the node in question
-			outChan <- &PingResult{
+			select {
+			case outChan <- &PingResult{
 				Text:    fmt.Sprintf("Looking up peer %s", pid.Pretty()),
 				Success: true,
+			}:
+			case <-ctx.Done():
+				return
 			}
 
 			ctx, cancel := context.WithTimeout(ctx, kPingTimeout)
 			defer cancel()
 			p, err := n.Routing.FindPeer(ctx, pid)
 			if err != nil {
-				outChan <- &PingResult{Text: fmt.Sprintf("Peer lookup error: %s", err)}
+				select {
+				case outChan <- &PingResult{Text: fmt.Sprintf("Peer lookup error: %s", err)}:
+				case <-ctx.Done():
+					return
+				}
+
 				return
 			}
 			n.Peerstore.AddAddrs(p.ID, p.Addrs, pstore.TempAddrTTL)
 		}
 
-		outChan <- &PingResult{
+		select {
+		case outChan <- &PingResult{
 			Text:    fmt.Sprintf("PING %s.", pid.Pretty()),
 			Success: true,
+		}:
+		case <-ctx.Done():
+			return
 		}
 
 		ctx, cancel := context.WithTimeout(ctx, kPingTimeout*time.Duration(numPings))
 		defer cancel()
 		pings, err := n.Ping.Ping(ctx, pid)
 		if err != nil {
-			outChan <- &PingResult{
+			select {
+			case outChan <- &PingResult{
 				Success: false,
 				Text:    fmt.Sprintf("Ping error: %s", err),
+			}:
+			case <-ctx.Done():
 			}
 			return
 		}
@@ -163,19 +183,25 @@ func pingPeer(ctx context.Context, n *core.IpfsNode, pid peer.ID, numPings int) 
 					done = true
 					break
 				}
-
-				outChan <- &PingResult{
+				select {
+				case outChan <- &PingResult{
 					Success: true,
 					Time:    t,
+				}:
+				case <-ctx.Done():
+					return
 				}
 				total += t
 				time.Sleep(time.Second)
 			}
 		}
 		averagems := total.Seconds() * 1000 / float64(numPings)
-		outChan <- &PingResult{
+		select {
+		case outChan <- &PingResult{
 			Success: true,
 			Text:    fmt.Sprintf("Average latency: %.2fms", averagems),
+		}:
+		case <-ctx.Done():
 		}
 	}()
 	return outChan

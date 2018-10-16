@@ -6,11 +6,12 @@ import (
 	"runtime"
 	"strings"
 
+	version "github.com/ipfs/go-ipfs"
 	cmds "github.com/ipfs/go-ipfs/commands"
 	e "github.com/ipfs/go-ipfs/core/commands/e"
-	config "github.com/ipfs/go-ipfs/repo/config"
 	fsrepo "github.com/ipfs/go-ipfs/repo/fsrepo"
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
 )
 
 type VersionOutput struct {
@@ -21,6 +22,13 @@ type VersionOutput struct {
 	Golang  string
 }
 
+const (
+	versionNumberOptionName = "number"
+	versionCommitOptionName = "commit"
+	versionRepoOptionName   = "repo"
+	versionAllOptionName    = "all"
+)
+
 var VersionCmd = &cmds.Command{
 	Helptext: cmdkit.HelpText{
 		Tagline:          "Show ipfs version information.",
@@ -28,15 +36,15 @@ var VersionCmd = &cmds.Command{
 	},
 
 	Options: []cmdkit.Option{
-		cmdkit.BoolOption("number", "n", "Only show the version number."),
-		cmdkit.BoolOption("commit", "Show the commit hash."),
-		cmdkit.BoolOption("repo", "Show repo version."),
-		cmdkit.BoolOption("all", "Show all version information"),
+		cmdkit.BoolOption(versionNumberOptionName, "n", "Only show the version number."),
+		cmdkit.BoolOption(versionCommitOptionName, "Show the commit hash."),
+		cmdkit.BoolOption(versionRepoOptionName, "Show repo version."),
+		cmdkit.BoolOption(versionAllOptionName, "Show all version information"),
 	},
 	Run: func(req cmds.Request, res cmds.Response) {
 		res.SetOutput(&VersionOutput{
-			Version: config.CurrentVersionNumber,
-			Commit:  config.CurrentCommit,
+			Version: version.CurrentVersionNumber,
+			Commit:  version.CurrentCommit,
 			Repo:    fmt.Sprint(fsrepo.RepoVersion),
 			System:  runtime.GOARCH + "/" + runtime.GOOS, //TODO: Precise version here
 			Golang:  runtime.Version(),
@@ -54,7 +62,7 @@ var VersionCmd = &cmds.Command{
 				return nil, e.TypeErr(version, v)
 			}
 
-			repo, _, err := res.Request().Option("repo").Bool()
+			repo, _, err := res.Request().Option(versionRepoOptionName).Bool()
 			if err != nil {
 				return nil, err
 			}
@@ -63,7 +71,7 @@ var VersionCmd = &cmds.Command{
 				return strings.NewReader(version.Repo + "\n"), nil
 			}
 
-			commit, _, err := res.Request().Option("commit").Bool()
+			commit, _, err := res.Request().Option(versionCommitOptionName).Bool()
 			commitTxt := ""
 			if err != nil {
 				return nil, err
@@ -72,7 +80,7 @@ var VersionCmd = &cmds.Command{
 				commitTxt = "-" + version.Commit
 			}
 
-			number, _, err := res.Request().Option("number").Bool()
+			number, _, err := res.Request().Option(versionNumberOptionName).Bool()
 			if err != nil {
 				return nil, err
 			}
@@ -80,7 +88,7 @@ var VersionCmd = &cmds.Command{
 				return strings.NewReader(fmt.Sprintln(version.Version + commitTxt)), nil
 			}
 
-			all, _, err := res.Request().Option("all").Bool()
+			all, _, err := res.Request().Option(versionAllOptionName).Bool()
 			if err != nil {
 				return nil, err
 			}

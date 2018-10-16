@@ -1,13 +1,16 @@
 package commands
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 
 	cmds "github.com/ipfs/go-ipfs/commands"
+	e "github.com/ipfs/go-ipfs/core/commands/e"
 
-	logging "gx/ipfs/QmRb5jh8z2E8hMGN2tkvs1yHynUanqnZ3UeKwgN1i9P1F8/go-log"
-	"gx/ipfs/QmceUdzxkimdYsgtX733uNgzf1DLHyBKN6ehGSp85ayppM/go-ipfs-cmdkit"
+	"gx/ipfs/QmSP88ryZkHSRn1fnngAaV2Vcn63WUJzAavnRM9CVdU1Ky/go-ipfs-cmdkit"
+	logging "gx/ipfs/QmZChCsSt8DctjceaL56Eibc29CVQq4dGKRXC5JRZ6Ppae/go-log"
+	lwriter "gx/ipfs/QmZChCsSt8DctjceaL56Eibc29CVQq4dGKRXC5JRZ6Ppae/go-log/writer"
 )
 
 // Golang os.Args overrides * and replaces the character argument with
@@ -105,7 +108,27 @@ Outputs event log messages (not other log messages) as they are generated.
 			defer w.Close()
 			<-ctx.Done()
 		}()
-		logging.WriterGroup.AddWriter(w)
+		lwriter.WriterGroup.AddWriter(w)
 		res.SetOutput(r)
 	},
+}
+
+func stringListMarshaler(res cmds.Response) (io.Reader, error) {
+	v, err := unwrapOutput(res.Output())
+	if err != nil {
+		return nil, err
+	}
+
+	list, ok := v.(*stringList)
+	if !ok {
+		return nil, e.TypeErr(list, v)
+	}
+
+	buf := new(bytes.Buffer)
+	for _, s := range list.Strings {
+		buf.WriteString(s)
+		buf.WriteString("\n")
+	}
+
+	return buf, nil
 }

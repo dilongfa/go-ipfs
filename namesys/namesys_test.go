@@ -1,19 +1,22 @@
 package namesys
 
 import (
+	"context"
 	"fmt"
 	"testing"
-
-	context "context"
+	"time"
 
 	opts "github.com/ipfs/go-ipfs/namesys/opts"
-	path "github.com/ipfs/go-ipfs/path"
-	"github.com/ipfs/go-ipfs/unixfs"
+	"gx/ipfs/QmRX6WZhMinQrQhyuwaqNHYQtNPhtBwzxKFySzNMaJmW9v/go-unixfs"
+	path "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 
-	ds "gx/ipfs/QmXRKBQA4wXP7xWbFiZsR1GP4HV6wMDQ1aWFxZZ4uBcPX9/go-datastore"
-	dssync "gx/ipfs/QmXRKBQA4wXP7xWbFiZsR1GP4HV6wMDQ1aWFxZZ4uBcPX9/go-datastore/sync"
-	offroute "gx/ipfs/QmXtoXbu9ReyV6Q4kDQ5CF9wXQNDY1PdHc4HhfxRR5AHB3/go-ipfs-routing/offline"
-	ci "gx/ipfs/QmaPbCnUMBohSGo3KnxEa2bHqyJVVeEEcwtqJAYxerieBo/go-libp2p-crypto"
+	ci "gx/ipfs/QmPvyPwuCgJ7pDmrKDxRtsScJgBaM5h4EpRL2qQJsmXf4n/go-libp2p-crypto"
+	offroute "gx/ipfs/QmQ9PR61a8rwEFuFNs7JMA1QtQC9yZnBwoDn51JWXDbaTd/go-ipfs-routing/offline"
+	pstoremem "gx/ipfs/QmWtCpWB39Rzc2xTB75MKorsxNpo3TyecTEN24CJ3KVohE/go-libp2p-peerstore/pstoremem"
+	ipns "gx/ipfs/QmX72XT6sSQRkNHKcAFLM2VqB3B4bWPetgWnHY8LgsUVeT/go-ipns"
+	ds "gx/ipfs/QmaRb5yNXKonhbkpNxNawoydk4N6es6b4fPj19sjEKsh5D/go-datastore"
+	dssync "gx/ipfs/QmaRb5yNXKonhbkpNxNawoydk4N6es6b4fPj19sjEKsh5D/go-datastore/sync"
+	peer "gx/ipfs/QmbNepETomvmXfz1X5pHNFD2QuPqnqi47dTd94QJWSorQ3/go-libp2p-peer"
 )
 
 type mockResolver struct {
@@ -21,6 +24,7 @@ type mockResolver struct {
 }
 
 func testResolution(t *testing.T, resolver Resolver, name string, depth uint, expected string, expError error) {
+	t.Helper()
 	p, err := resolver.Resolve(context.Background(), name, opts.Depth(depth))
 	if err != expError {
 		t.Fatal(fmt.Errorf(
@@ -34,8 +38,9 @@ func testResolution(t *testing.T, resolver Resolver, name string, depth uint, ex
 	}
 }
 
-func (r *mockResolver) resolveOnce(ctx context.Context, name string, opts *opts.ResolveOpts) (path.Path, error) {
-	return path.ParsePath(r.entries[name])
+func (r *mockResolver) resolveOnce(ctx context.Context, name string, opts *opts.ResolveOpts) (path.Path, time.Duration, error) {
+	p, err := path.ParsePath(r.entries[name])
+	return p, 0, err
 }
 
 func mockResolverOne() *mockResolver {
@@ -58,10 +63,8 @@ func mockResolverTwo() *mockResolver {
 
 func TestNamesysResolution(t *testing.T) {
 	r := &mpns{
-		resolvers: map[string]resolver{
-			"dht": mockResolverOne(),
-			"dns": mockResolverTwo(),
-		},
+		ipnsResolver: mockResolverOne(),
+		dnsResolver:  mockResolverTwo(),
 	}
 
 	testResolution(t, r, "Qmcqtw8FfrVSBaRmbWwHxt3AuySBhJLcvmFYi3Lbc4xnwj", opts.DefaultDepthLimit, "/ipfs/Qmcqtw8FfrVSBaRmbWwHxt3AuySBhJLcvmFYi3Lbc4xnwj", nil)
@@ -83,7 +86,17 @@ func TestPublishWithCache0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routing := offroute.NewOfflineRouter(dst, priv)
+	ps := pstoremem.NewPeerstore()
+	pid, err := peer.IDFromPrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ps.AddPrivKey(pid, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	routing := offroute.NewOfflineRouter(dst, ipns.Validator{KeyBook: ps})
 
 	nsys := NewNameSystem(routing, dst, 0)
 	p, err := path.ParsePath(unixfs.EmptyDirNode().Cid().String())

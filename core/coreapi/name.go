@@ -7,17 +7,16 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/ipfs/go-ipfs/core"
+	"github.com/ipfs/go-ipfs/core"
 	coreiface "github.com/ipfs/go-ipfs/core/coreapi/interface"
 	caopts "github.com/ipfs/go-ipfs/core/coreapi/interface/options"
-	keystore "github.com/ipfs/go-ipfs/keystore"
-	namesys "github.com/ipfs/go-ipfs/namesys"
-	nsopts "github.com/ipfs/go-ipfs/namesys/opts"
-	ipath "github.com/ipfs/go-ipfs/path"
+	"github.com/ipfs/go-ipfs/keystore"
+	"github.com/ipfs/go-ipfs/namesys"
+	ipath "gx/ipfs/QmdrpbDgeYH3VxkCciQCJY5LkDYdXtig6unDzQmMxFtWEw/go-path"
 
-	offline "gx/ipfs/QmXtoXbu9ReyV6Q4kDQ5CF9wXQNDY1PdHc4HhfxRR5AHB3/go-ipfs-routing/offline"
-	peer "gx/ipfs/QmZoWKhxUmZ2seW4BzX6fJkNR8hh9PsGModr7q171yq2SS/go-libp2p-peer"
-	crypto "gx/ipfs/QmaPbCnUMBohSGo3KnxEa2bHqyJVVeEEcwtqJAYxerieBo/go-libp2p-crypto"
+	"gx/ipfs/QmPvyPwuCgJ7pDmrKDxRtsScJgBaM5h4EpRL2qQJsmXf4n/go-libp2p-crypto"
+	"gx/ipfs/QmQ9PR61a8rwEFuFNs7JMA1QtQC9yZnBwoDn51JWXDbaTd/go-ipfs-routing/offline"
+	"gx/ipfs/QmbNepETomvmXfz1X5pHNFD2QuPqnqi47dTd94QJWSorQ3/go-libp2p-peer"
 )
 
 type NameAPI CoreAPI
@@ -46,6 +45,9 @@ func (api *NameAPI) Publish(ctx context.Context, p coreiface.Path, opts ...caopt
 	n := api.node
 
 	if !n.OnlineMode() {
+		if !options.AllowOffline {
+			return nil, coreiface.ErrOffline
+		}
 		err := n.SetupOfflineRouting()
 		if err != nil {
 			return nil, err
@@ -64,6 +66,10 @@ func (api *NameAPI) Publish(ctx context.Context, p coreiface.Path, opts ...caopt
 	k, err := keylookup(n, options.Key)
 	if err != nil {
 		return nil, err
+	}
+
+	if options.TTL != nil {
+		ctx = context.WithValue(ctx, "ipns-publish-ttl", *options.TTL)
 	}
 
 	eol := time.Now().Add(options.ValidTime)
@@ -107,8 +113,8 @@ func (api *NameAPI) Resolve(ctx context.Context, name string, opts ...caopts.Nam
 	}
 
 	if options.Local {
-		offroute := offline.NewOfflineRouter(n.Repo.Datastore(), n.PrivateKey)
-		resolver = namesys.NewRoutingResolver(offroute, 0)
+		offroute := offline.NewOfflineRouter(n.Repo.Datastore(), n.RecordValidator)
+		resolver = namesys.NewIpnsResolver(offroute)
 	}
 
 	if !options.Cache {
@@ -119,17 +125,12 @@ func (api *NameAPI) Resolve(ctx context.Context, name string, opts ...caopts.Nam
 		name = "/ipns/" + name
 	}
 
-	var ropts []nsopts.ResolveOpt
-	if !options.Recursive {
-		ropts = append(ropts, nsopts.Depth(1))
-	}
-
-	output, err := resolver.Resolve(ctx, name, ropts...)
+	output, err := resolver.Resolve(ctx, name, options.ResolveOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return &path{path: output}, nil
+	return coreiface.ParsePath(output.String())
 }
 
 func keylookup(n *core.IpfsNode, k string) (crypto.PrivKey, error) {
